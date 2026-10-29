@@ -1,1 +1,105 @@
-
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Labelcode-Finder</title>
+<style>
+:root{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:#202833;background:#f4f6f9}
+*{box-sizing:border-box}body{margin:0}main{max-width:900px;margin:auto;padding:24px 16px 48px}
+h1{font-size:clamp(1.8rem,5vw,2.5rem);line-height:1.1;margin:.35rem 0 .65rem}
+p{line-height:1.5}.muted{color:#5e6977}.card{background:#fff;border:1px solid #dce1e8;border-radius:16px;padding:20px;margin:16px 0;box-shadow:0 5px 20px #172b3b08}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.field{display:flex;flex-direction:column;gap:6px}.wide{grid-column:1/-1}
+label{font-weight:650;font-size:.93rem}input{width:100%;font:inherit;padding:12px;border:1px solid #b7c1cc;border-radius:9px;background:#fff}
+button{font:inherit;font-weight:650;padding:11px 15px;border:0;border-radius:9px;cursor:pointer}.primary{background:#284f72;color:white}.secondary{background:#e8f0f7;color:#1e4565}.buttons{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
+.status{padding:12px 14px;border-radius:9px;background:#f0f3f6;margin-top:14px}.status.error{background:#fff1e9}.status.ok{background:#eaf6ed}
+.result{border:1px solid #dce1e8;border-radius:12px;padding:15px;margin:12px 0;background:#fff}.lc{font-size:1.7rem;font-weight:800;letter-spacing:.02em}.pill{font-size:.78rem;border-radius:999px;padding:4px 8px;background:#eef1f4;display:inline-block}.release-title{font-weight:750;font-size:1.05rem}.links a{color:#205b87;font-weight:650}.links{display:flex;gap:12px;flex-wrap:wrap;margin-top:10px}
+small{color:#65707d}.warning{border-left:4px solid #b87922;background:#fff8e8;padding:12px 14px;border-radius:5px;margin-top:14px}
+@media(max-width:560px){.grid{grid-template-columns:1fr}.wide{grid-column:auto}.card{padding:16px}}
+</style>
+</head>
+<body><main>
+<div class="muted" style="font-weight:750;letter-spacing:.1em;text-transform:uppercase;font-size:.78rem">Musikrecherche für den Schnitt</div>
+<h1>Labelcode-Finder</h1>
+<p class="muted">Song und Interpret eingeben. Der Finder durchsucht Discogs nach konkreten Veröffentlichungen. Für ganz neue Songs kannst du zusätzlich direkt auf Spotify nach dem Song suchen und dort das Albumlabel prüfen.</p>
+<section class="card">
+<form id="form">
+<div class="grid">
+<div class="field"><label for="track">Songtitel *</label><input id="track" required placeholder="z. B. Dreams"></div>
+<div class="field"><label for="artist">Interpret *</label><input id="artist" required placeholder="z. B. Fleetwood Mac"></div>
+<div class="field"><label for="album">Album / Single (optional)</label><input id="album" placeholder="z. B. Rumours"></div>
+<div class="field"><label for="year">Veröffentlichungsjahr (optional)</label><input id="year" inputmode="numeric" placeholder="z. B. 1977"></div>
+</div>
+<div class="buttons"><button class="primary" type="submit">Labelcode suchen</button><button class="secondary" type="reset">Zurücksetzen</button></div>
+</form>
+<div id="status" class="status" style="display:none" aria-live="polite"></div>
+<div id="results"></div>
+</section>
+<section class="card">
+<h2 style="font-size:1.15rem;margin-top:0">Offizielle Gegenprüfung</h2>
+<p><a href="https://labelrecherche.gvl.de/" target="_blank" rel="noopener">GVL-Labelrecherche öffnen ↗</a></p>
+<p><a href="https://portal.gema.de/app/repertoiresuche/werksuche" target="_blank" rel="noopener">GEMA-Repertoiresuche öffnen ↗</a></p>
+<p><a href="https://open.spotify.com/" target="_blank" rel="noopener">Spotify öffnen ↗</a></p>
+<p class="muted">Die GEMA hilft besonders bei der Identifizierung des Werks. Der Labelcode muss einer konkreten Tonträgerveröffentlichung bzw. dem zugehörigen Rechteinhaber zugeordnet werden.</p>
+</section>
+<div class="warning"><strong>Wichtig:</strong> Das Tool zeigt nur Labelcodes an, die tatsächlich im jeweiligen Discogs-Veröffentlichungsdatensatz stehen. Discogs ist nutzergeneriert; bitte prüfe Treffer vor der Verwendung gegen die konkrete Version und die GVL. Ein fehlender Treffer bedeutet nicht, dass es keinen Labelcode gibt.</div>
+<p><small>Technik: Discogs wird direkt abgefragt. Spotify wird in dieser Version als vorbereitete Suche geöffnet; das Label musst du auf der Albumseite selbst prüfen. Automatische Spotify-API-Abfragen benötigen eine zusätzliche sichere Anmeldung.</small></p>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+function setStatus(text,kind=""){const el=$("status");el.style.display="block";el.className="status "+kind;el.textContent=text}
+function el(tag,cls,text){const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n}
+function link(url,text){const a=el("a","",text+" ↗");a.href=url;a.target="_blank";a.rel="noopener";return a}
+function queryUrl(q){return "https://www.discogs.com/search/?q="+encodeURIComponent(q)+"&type=release"}
+$("form").addEventListener("reset",()=>{setTimeout(()=>{$("status").style.display="none";$("results").replaceChildren()},0)});
+$("form").addEventListener("submit",async e=>{
+ e.preventDefault();const track=$("track").value.trim(),artist=$("artist").value.trim(),album=$("album").value.trim(),year=$("year").value.trim();
+ const query=[track,artist,album,year].filter(Boolean).join(" ");
+ $("results").replaceChildren();setStatus("Suche läuft …");
+ const searchUrl="https://api.discogs.com/database/search?type=release&track="+encodeURIComponent(track)+"&artist="+encodeURIComponent(artist)+(album?"&release_title="+encodeURIComponent(album):"")+(year?"&year="+encodeURIComponent(year):"")+"&per_page=8";
+ try{
+   const res=await fetch(searchUrl,{headers:{"Accept":"application/vnd.discogs.v2.plaintext+json"}});
+   if(!res.ok)throw new Error(res.status===429?"Discogs begrenzt die Suchanfragen momentan. Bitte später erneut versuchen.":"Discogs antwortet mit HTTP "+res.status+".");
+   const data=await res.json();const items=(data.results||[]).filter(x=>x.id);
+   if(!items.length){setStatus("Keine passenden Discogs-Veröffentlichungen gefunden. Bei neuen Songs kannst du direkt Spotify nach Song und Interpret durchsuchen und das Albumlabel prüfen.", "error");const fallback=el("p","links");fallback.append(link("https://open.spotify.com/search/"+encodeURIComponent(track+" "+artist),"Auf Spotify nach Song und Interpret suchen"));fallback.append(link("https://portal.gema.de/app/repertoiresuche/werksuche","GEMA-Repertoiresuche öffnen"));$("results").append(fallback);return}
+   setStatus(items.length+" mögliche Veröffentlichung(en) gefunden. Labelcodes werden nur angezeigt, wenn sie im jeweiligen Datensatz hinterlegt sind.","ok");
+   for(const item of items.slice(0,6)){
+     const box=el("article","result"),heading=el("div","release-title",item.title||"Unbekannter Titel");
+     box.append(heading);
+     const meta=[item.year,item.country,(item.label||[]).join(", "),item.catno].filter(Boolean).join(" · ");
+     box.append(el("p","muted",meta||"Keine weiteren Angaben"));
+     const codeLine=el("div","");
+     codeLine.append(el("span","pill","Veröffentlichung wird geprüft"));
+     box.append(codeLine);
+     const links=el("div","links");links.append(link("https://www.discogs.com/release/"+item.id,"Discogs-Release"));links.append(link("https://open.spotify.com/search/"+encodeURIComponent(track+" "+artist),"Auf Spotify suchen"));box.append(links);
+     $("results").append(box);
+     // Search endpoint gives candidate releases; fetch details to inspect identifiers for a recorded LC.
+     try{
+       const detailRes=await fetch("https://api.discogs.com/releases/"+item.id,{headers:{"Accept":"application/vnd.discogs.v2.plaintext+json"}});
+       if(!detailRes.ok)throw new Error("Detaildaten nicht abrufbar");
+       const detail=await detailRes.json();
+       const ids=detail.identifiers||[];
+       const codes=ids.filter(i=>/label\s*code|labelcode/i.test(i.type||"")||/^LC\s*\d{4,8}$/i.test(i.value||"")).map(i=>(i.value||"").trim()).filter(Boolean);
+       const labels=(detail.labels||[]).map(l=>l.name).filter(Boolean);
+       const current=box.querySelector(".pill");
+       if(codes.length){
+         current.textContent="Labelcode im Datensatz gefunden";
+         current.style.background="#e4f5e9";current.style.color="#17653b";
+         const lc=el("div","lc",Array.from(new Set(codes)).join(" / "));
+         box.insertBefore(lc,codeLine);
+       }else{
+         current.textContent="Kein Labelcode im Datensatz hinterlegt";
+       }
+       const labelNames=el("p","muted","Label(s): "+(labels.join(", ")||"keine Angabe"));
+       box.insertBefore(labelNames,links);
+       links.append(link("https://labelrecherche.gvl.de/","GVL gegenprüfen"));
+       if(codes.length)box.style.borderColor="#92cba4";
+     }catch(err){
+       const pill=box.querySelector(".pill");if(pill)pill.textContent="Details nicht abrufbar – Release öffnen";
+     }
+   }
+ }catch(err){
+   setStatus((err&&err.message?err.message:"Die automatische Abfrage ist fehlgeschlagen.")+" Falls Discogs den Browserzugriff blockiert, bleibt die direkte Release-Suche als Ausweichweg.", "error");
+   const fallback=el("p","links");fallback.append(link(queryUrl(query),"Suche auf Discogs öffnen"));fallback.append(link("https://open.spotify.com/search/"+encodeURIComponent(track+" "+artist),"Auf Spotify suchen"));$("results").append(fallback);
+ }
+});
+</script></body></html>
